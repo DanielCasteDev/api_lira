@@ -7,9 +7,10 @@ const authRoutes = require("./src/routes/authRoutes");
 const parentRoutes = require("./src/routes/parentRoutes");
 const userRoutes = require('./src/routes/userRoutes'); 
 const adminRoutes = require('./src/routes/adminRoutes'); 
+const backupRoutes = require('./src/routes/backupRoutes'); 
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 
 // Conectar a MongoDB
 connectDB();
@@ -25,6 +26,8 @@ app.use("/api", authRoutes);
 app.use("/api", parentRoutes);
 app.use('/api', userRoutes); 
 app.use('/api', adminRoutes);
+app.use('/api', backupRoutes);
+
 
 // Iniciar servidor
 app.listen(PORT, () => {
