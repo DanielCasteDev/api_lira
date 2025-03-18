@@ -25,6 +25,7 @@ app.use("/api", authRoutes);
 app.use("/api", parentRoutes);
 app.use('/api', userRoutes); 
 app.use('/api', adminRoutes);
+
 // Iniciar servidor
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en http://localhost:${PORT}`);
