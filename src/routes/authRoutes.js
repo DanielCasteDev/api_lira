@@ -45,6 +45,8 @@ router.post('/login', async (req, res) => {
         res.status(200).json({
             message: 'Login exitoso',
             user: {
+                _id: usuario._id, // Asegúrate de incluir el _id
+
                 correo: usuario.correo,
                 role: usuario.role, // Enviar el rol del usuario
             },
