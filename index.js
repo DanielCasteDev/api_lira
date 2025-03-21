@@ -8,6 +8,7 @@ const parentRoutes = require("./src/routes/parentRoutes");
 const userRoutes = require('./src/routes/userRoutes'); 
 const adminRoutes = require('./src/routes/adminRoutes'); 
 const backupRoutes = require('./src/routes/backupRoutes'); 
+const childrenRoutes = require('./src/routes/childrenRoutes'); 
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -27,6 +28,7 @@ app.use("/api", parentRoutes);
 app.use('/api', userRoutes); 
 app.use('/api', adminRoutes);
 app.use('/api', backupRoutes);
+app.use('/api', childrenRoutes);
 
 
 // Iniciar servidor
