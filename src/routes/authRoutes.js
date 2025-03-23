@@ -46,6 +46,7 @@ router.post('/login', async (req, res) => {
             message: 'Login exitoso',
             user: {
                 _id: usuario.parentId, // Asegúrate de incluir el _id
+                id_usuario: usuario._id, // Asegúrate de incluir el _id
 
                 correo: usuario.correo,
                 role: usuario.role,

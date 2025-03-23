@@ -23,8 +23,12 @@ const userSchema = new mongoose.Schema({
     },
     parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Parent' }, // Referencia al padre
     childId: { type: mongoose.Schema.Types.ObjectId, ref: 'Child' }, // Referencia al niño
-
-}, {
+    activo: { // Nuevo campo para el estado de activo/inactivo
+        type: Boolean,
+        default: false, // Por defecto, el usuario está activo
+    },
+},
+ {
     timestamps: true,
 });
 
