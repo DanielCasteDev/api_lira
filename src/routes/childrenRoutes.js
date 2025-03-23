@@ -36,6 +36,4 @@ router.get('/child-profile/:id', authMiddleware, async (req, res) => {
 });
 
 
-
 module.exports = router;
-
