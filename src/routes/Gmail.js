@@ -20,7 +20,7 @@ const transporter = nodemailer.createTransport({
 
 // Función para enviar el correo de restablecimiento
 const sendResetEmail = (email, token) => {
-    const resetLink = `http://localhost:5173/reset-password/${token}`;
+    const resetLink = `https://app-lira.vercel.app/reset-password/${token}`;
   
     const mailOptions = {
       from: 'educacionlira@gmail.com',
