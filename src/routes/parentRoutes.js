@@ -119,5 +119,31 @@ router.get('/children/:parentId',authMiddleware, async (req, res) => {
     }
 });
 
+
+
+router.get('/parent/:parentId/children/status', async (req, res) => {
+    try {
+      // 1. Obtener todos los hijos del padre
+      const children = await Child.find({ parentId: req.params.parentId });
+      
+      // 2. Obtener el estado de actividad de cada hijo
+      const childrenWithStatus = await Promise.all(
+        children.map(async (child) => {
+          const user = await User.findById(child.userId);
+          return {
+            id: child._id,
+            nombre: child.nombre,
+            activo: user?.activo || false,
+            lastActive: user?.updatedAt // O puedes tener un campo lastActive en el User
+          };
+        })
+      );
+      
+      res.json(childrenWithStatus);
+    } catch (error) {
+      res.status(500).json({ message: "Error al obtener el estado de los hijos" });
+    }
+  });
+
 module.exports = router;
 

@@ -34,7 +34,7 @@ router.post('/login', async (req, res) => {
         const token = jwt.sign(
             { userId: usuario._id, correo: usuario.correo, role: usuario.role }, // Payload
             process.env.JWT_SECRET, // Clave secreta
-            { expiresIn: '1h' } // Tiempo de expiración (1 hora)
+            { expiresIn: '8h' } // Tiempo de expiración (1 hora)
         );
 
         // Guardar el token en la base de datos (opcional)
