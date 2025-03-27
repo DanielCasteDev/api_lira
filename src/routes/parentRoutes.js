@@ -119,7 +119,41 @@ router.get('/children/:parentId',authMiddleware, async (req, res) => {
     }
 });
 
+// Obtener hijos de un padre específico con su progreso en juegos
+router.get('/childrenes/:parentId', authMiddleware, async (req, res) => {
+    try {
+        const { parentId } = req.params;
+        
+        // Busca los hijos que tienen el parentId correspondiente
+        // y selecciona específicamente los campos que queremos devolver
+        const children = await Child.find({ parentId })
+            .select('nombre apellido avatar gameProgress totalPoints');
 
+        if (!children.length) {
+            return res.status(404).json({ message: 'No se encontraron hijos para este padre.' });
+        }
+
+        // Formatear la respuesta para incluir detalles del progreso en juegos
+        const childrenWithProgress = children.map(child => ({
+            _id: child._id,
+            nombre: child.nombre,
+            apellido: child.apellido,
+            avatar: child.avatar,
+            totalPoints: child.totalPoints,
+            games: child.gameProgress.map(game => ({
+                name: game.gameName,
+                points: game.points,
+                levelsCompleted: game.levelsCompleted,
+                highestDifficulty: game.highestDifficulty,
+                lastPlayed: game.lastPlayed
+            }))
+        }));
+
+        res.json(childrenWithProgress);
+    } catch (error) {
+        res.status(500).json({ message: 'Error al obtener los hijos', error });
+    }
+});
 
 router.get('/parent/:parentId/children/status', async (req, res) => {
     try {
