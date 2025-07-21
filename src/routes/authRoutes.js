@@ -89,6 +89,4 @@ router.get('/tv-login-status/:qr_token', (req, res) => {
     }
 });
 
-
-
 module.exports = router;
