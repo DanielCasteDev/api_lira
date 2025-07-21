@@ -62,4 +62,33 @@ router.post('/login', async (req, res) => {
     }
 });
 
+// Guardado en memoria temporal
+const tvSessions = {}; // Recomendado: luego lo pasas a base de datos si quieres persistencia
+
+// POST /tv-login → el celular manda el nombre del usuario y el token QR después del login
+router.post('/tv-login', (req, res) => {
+    const { qr_token, nombre } = req.body;
+
+    if (!qr_token || !nombre) {
+        return res.status(400).json({ message: 'Faltan parámetros: qr_token o nombre.' });
+    }
+
+    tvSessions[qr_token] = { nombre };
+
+    return res.status(200).json({ message: 'Token vinculado correctamente.' });
+});
+
+// GET /tv-login-status/:qr_token → la TV consulta si ya se autenticó
+router.get('/tv-login-status/:qr_token', (req, res) => {
+    const token = req.params.qr_token;
+
+    if (tvSessions[token]) {
+        return res.status(200).json({ nombre: tvSessions[token].nombre });
+    } else {
+        return res.status(200).json({}); // Aún no hay nombre vinculado
+    }
+});
+
+
+
 module.exports = router;
