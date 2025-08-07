@@ -151,6 +151,46 @@ router.get('/child-progress/:childId', authMiddleware, async (req, res) => {
     }
 });
 
+// Obtener progreso del niño tv 
+
+router.get('/child-pro/:childId', async (req, res) => {
+    try {
+        const childId = req.params.childId;
+
+        const child = await Child.findById(childId)
+            .select('nombre apellido totalPoints gameProgress avatar');
+
+        if (!child) {
+            return res.status(404).json({ message: 'Niño no encontrado' });
+        }
+
+        // Formatear la respuesta
+        const response = {
+            id: child._id,
+            nombre: child.nombre,
+            apellido: child.apellido,
+            avatar: child.avatar,
+            totalPoints: child.totalPoints,
+            games: child.gameProgress.map(game => ({
+                gameName: game.gameName,
+                points: game.points,
+                levelsCompleted: game.levelsCompleted,
+                highestDifficulty: game.highestDifficulty,
+                lastPlayed: game.lastPlayed
+            }))
+        };
+
+        res.status(200).json(response);
+    } catch (error) {
+        console.error('Error al obtener progreso:', error);
+        res.status(500).json({ 
+            message: 'Error al obtener progreso', 
+            error: error.message 
+        });
+    }
+});
+
+
 // Obtener progreso específico de un juego
 router.get('/child-progress/:childId/:gameName', authMiddleware, async (req, res) => {
     try {
