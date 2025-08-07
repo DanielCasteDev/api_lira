@@ -62,6 +62,9 @@ router.post('/login', async (req, res) => {
     }
 });
 
+const tvSessions = {};
+
+
 // LOGIN EXCLUSIVO PARA TV
 router.post('/tv-login', async (req, res) => {
     try {
