@@ -62,30 +62,74 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// Guardado en memoria temporal
-const tvSessions = {}; // Recomendado: luego lo pasas a base de datos si quieres persistencia
+// LOGIN EXCLUSIVO PARA TV
+router.post('/tv-login', async (req, res) => {
+    try {
+        const { correo, contraseña, qr_token } = req.body;
 
-// POST /tv-login → el celular manda el nombre del usuario y el token QR después del login
-router.post('/tv-login', (req, res) => {
-    const { qr_token, nombre } = req.body;
+        if (!correo || !contraseña || !qr_token) {
+            return res.status(400).json({ message: 'Correo, contraseña y qr_token son obligatorios.' });
+        }
 
-    if (!qr_token || !nombre) {
-        return res.status(400).json({ message: 'Faltan parámetros: qr_token o nombre.' });
+        // Buscar el usuario
+        const usuario = await User.findOne({ correo });
+        if (!usuario) {
+            return res.status(404).json({ message: 'Usuario no encontrado.' });
+        }
+
+        // Verificar contraseña
+        const clave = 'claveSecreta';
+        const contraseñaDescifrada = cifradoVigenere(usuario.contraseña, clave, false);
+        if (contraseñaDescifrada !== contraseña) {
+            return res.status(401).json({ message: 'Contraseña incorrecta.' });
+        }
+
+        // Generar token
+        const token = jwt.sign(
+            { userId: usuario._id, correo: usuario.correo, role: usuario.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '8h' }
+        );
+
+        usuario.token = token;
+        await usuario.save();
+
+        // Datos completos del usuario
+        const userData = {
+            _id: usuario.parentId,
+            id_usuario: usuario._id,
+            correo: usuario.correo,
+            role: usuario.role,
+            nombre: usuario.nombre,
+            id_niño: usuario.childId
+        };
+
+        // Guardar en sesiones para TV
+        tvSessions[qr_token] = {
+            user: userData,
+            token
+        };
+
+        res.status(200).json({
+            message: 'Login de TV exitoso',
+            user: userData,
+            token
+        });
+
+    } catch (error) {
+        console.error('Error en tv-login:', error);
+        res.status(500).json({ message: 'Error en tv-login.', error });
     }
-
-    tvSessions[qr_token] = { nombre };
-
-    return res.status(200).json({ message: 'Token vinculado correctamente.' });
 });
 
-// GET /tv-login-status/:qr_token → la TV consulta si ya se autenticó
+// TV consulta si ya se autenticó
 router.get('/tv-login-status/:qr_token', (req, res) => {
     const token = req.params.qr_token;
 
     if (tvSessions[token]) {
-        return res.status(200).json({ nombre: tvSessions[token].nombre });
+        return res.status(200).json(tvSessions[token]);
     } else {
-        return res.status(200).json({}); // Aún no hay nombre vinculado
+        return res.status(200).json({}); // Aún no hay datos vinculados
     }
 });
 
