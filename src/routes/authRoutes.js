@@ -71,20 +71,17 @@ router.post('/tv-login', async (req, res) => {
             return res.status(400).json({ message: 'Correo, contraseña y qr_token son obligatorios.' });
         }
 
-        // Buscar el usuario
         const usuario = await User.findOne({ correo });
         if (!usuario) {
             return res.status(404).json({ message: 'Usuario no encontrado.' });
         }
 
-        // Verificar contraseña
         const clave = 'claveSecreta';
         const contraseñaDescifrada = cifradoVigenere(usuario.contraseña, clave, false);
         if (contraseñaDescifrada !== contraseña) {
             return res.status(401).json({ message: 'Contraseña incorrecta.' });
         }
 
-        // Generar token
         const token = jwt.sign(
             { userId: usuario._id, correo: usuario.correo, role: usuario.role },
             process.env.JWT_SECRET,
@@ -94,7 +91,6 @@ router.post('/tv-login', async (req, res) => {
         usuario.token = token;
         await usuario.save();
 
-        // Datos completos del usuario
         const userData = {
             _id: usuario.parentId,
             id_usuario: usuario._id,
@@ -104,7 +100,7 @@ router.post('/tv-login', async (req, res) => {
             id_niño: usuario.childId
         };
 
-        // Guardar en sesiones para TV
+        // Guardar en sesión de TV para que la pantalla lo lea
         tvSessions[qr_token] = {
             user: userData,
             token
@@ -127,10 +123,11 @@ router.get('/tv-login-status/:qr_token', (req, res) => {
     const token = req.params.qr_token;
 
     if (tvSessions[token]) {
-        return res.status(200).json(tvSessions[token]);
+        return res.status(200).json(tvSessions[token]); // user + token
     } else {
-        return res.status(200).json({}); // Aún no hay datos vinculados
+        return res.status(200).json({}); // aún no hay datos
     }
 });
+
 
 module.exports = router;
