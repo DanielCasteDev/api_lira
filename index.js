@@ -9,7 +9,8 @@ const userRoutes = require('./src/routes/userRoutes');
 const adminRoutes = require('./src/routes/adminRoutes'); 
 const backupRoutes = require('./src/routes/backupRoutes'); 
 const childrenRoutes = require('./src/routes/childrenRoutes'); 
-const gmail = require('./src/routes/Gmail'); 
+const gmail = require('./src/routes/Gmail');
+const notificationRoutes = require('./src/routes/notificationRoutes'); 
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -35,6 +36,7 @@ app.use('/api', adminRoutes);
 app.use('/api', backupRoutes);
 app.use('/api', childrenRoutes);
 app.use('/api', gmail);
+app.use('/api/notifications', notificationRoutes);
 
 
 // Iniciar servidor
