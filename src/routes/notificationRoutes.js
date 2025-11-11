@@ -8,27 +8,57 @@ const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// Cargar claves VAPID desde el archivo JSON
+// Cargar claves VAPID desde archivo JSON
 const vapidKeysPath = path.join(__dirname, '../../vapid-keys.json');
 let vapidKeys = {};
 
-try {
-    if (fs.existsSync(vapidKeysPath)) {
-        const vapidKeysData = fs.readFileSync(vapidKeysPath, 'utf8');
-        vapidKeys = JSON.parse(vapidKeysData);
+// Función para cargar o generar claves VAPID
+const loadVapidKeys = () => {
+    try {
+        // Intentar cargar desde archivo JSON
+        if (fs.existsSync(vapidKeysPath)) {
+            const vapidKeysData = fs.readFileSync(vapidKeysPath, 'utf8');
+            vapidKeys = JSON.parse(vapidKeysData);
+            console.log('✅ Claves VAPID cargadas desde archivo JSON');
+            return true;
+        }
         
-        // Configurar web-push con las claves VAPID
+        // Si no existe, generar nuevas claves automáticamente
+        console.log('⚠️ Archivo vapid-keys.json no encontrado. Generando nuevas claves...');
+        const generatedKeys = webpush.generateVAPIDKeys();
+        vapidKeys = {
+            publicKey: generatedKeys.publicKey,
+            privateKey: generatedKeys.privateKey
+        };
+        
+        // Guardar en archivo JSON
+        fs.writeFileSync(vapidKeysPath, JSON.stringify(vapidKeys, null, 2));
+        console.log('✅ Claves VAPID generadas y guardadas en vapid-keys.json');
+        console.log('📋 Public Key:', generatedKeys.publicKey);
+        return true;
+    } catch (error) {
+        console.error('❌ Error al cargar/generar las claves VAPID:', error);
+        return false;
+    }
+};
+
+// Cargar las claves al iniciar
+const keysLoaded = loadVapidKeys();
+
+if (keysLoaded && vapidKeys.publicKey && vapidKeys.privateKey) {
+    // Configurar web-push con las claves VAPID
+    try {
         webpush.setVapidDetails(
-            'mailto:admin@lira.com', // Contacto del administrador
+            'mailto:admin@lira.com',
             vapidKeys.publicKey,
             vapidKeys.privateKey
         );
-        console.log('Claves VAPID cargadas correctamente');
-    } else {
-        console.error('Archivo vapid-keys.json no encontrado. Por favor, genera las claves VAPID primero.');
+        console.log('✅ Web-push configurado correctamente con las claves VAPID');
+    } catch (error) {
+        console.error('❌ Error al configurar web-push:', error);
     }
-} catch (error) {
-    console.error('Error al cargar las claves VAPID:', error);
+} else {
+    console.error('❌ No se pudieron cargar las claves VAPID');
 }
 
 // Ruta para obtener la clave pública VAPID

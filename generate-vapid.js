@@ -41,4 +41,14 @@ console.log('\n⚠️  IMPORTANTE:');
 console.log('   - Nunca compartas la clave privada');
 console.log('   - No commits este archivo en el repositorio (agrégalo a .gitignore)');
 console.log('   - Guarda estas claves de forma segura');
+console.log('\n🚀 PARA PRODUCCIÓN (Render.com, Heroku, etc.):');
+console.log('   Configura las siguientes variables de entorno:');
+console.log('   VAPID_PUBLIC_KEY=' + vapidKeys.publicKey);
+console.log('   VAPID_PRIVATE_KEY=' + vapidKeys.privateKey);
+console.log('   VAPID_CONTACT_EMAIL=mailto:admin@lira.com (opcional)');
+console.log('\n📝 En Render.com:');
+console.log('   1. Ve a tu servicio');
+console.log('   2. Environment > Add Environment Variable');
+console.log('   3. Agrega VAPID_PUBLIC_KEY y VAPID_PRIVATE_KEY');
+console.log('   4. Reinicia el servicio');
 
