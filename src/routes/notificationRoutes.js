@@ -364,11 +364,46 @@ router.post('/send-to-user', authMiddleware, async (req, res) => {
                     }
                 } catch (error) {
                     console.error('❌ [Backend] ===== ERROR CRÍTICO AL ENVIAR NOTIFICACIONES MÓVILES =====');
-                    console.error('❌ [Backend] Mensaje de error:', error.message);
-                    console.error('❌ [Backend] Stack:', error.stack);
+                    console.error('❌ [Backend] Tipo de error:', typeof error);
+                    console.error('❌ [Backend] Error completo:', JSON.stringify(error, null, 2));
+                    console.error('❌ [Backend] Mensaje de error:', error?.message || error?.error || 'Error desconocido');
+                    console.error('❌ [Backend] Stack:', error?.stack || 'No disponible');
                     console.error('❌ [Backend] Timestamp:', new Date().toISOString());
+                    
+                    // Verificar si el error contiene playerIds inválidos
+                    const invalidPlayerIds = error?.invalidPlayerIds || [];
+                    const hasInvalidPlayerIds = invalidPlayerIds.length > 0;
+                    
+                    if (hasInvalidPlayerIds) {
+                        console.error('❌ [Backend] PlayerIds inválidos detectados en el error:', invalidPlayerIds);
+                        console.error('❌ [Backend] Eliminando suscripciones inválidas...');
+                        
+                        // Eliminar suscripciones con playerIds inválidos
+                        for (const invalidPlayerId of invalidPlayerIds) {
+                            try {
+                                const deleteResult = await Subscription.deleteMany({ 
+                                    userId, 
+                                    playerId: invalidPlayerId,
+                                    type: 'mobile'
+                                });
+                                console.log('🗑️ [Backend] Suscripción eliminada (playerId inválido):', {
+                                    playerId: invalidPlayerId,
+                                    deletedCount: deleteResult.deletedCount
+                                });
+                            } catch (deleteError) {
+                                console.error('❌ [Backend] Error eliminando suscripción inválida:', deleteError.message);
+                            }
+                        }
+                    }
+                    
                     mobileSubscriptions.forEach(sub => {
-                        results.push({ success: false, type: 'mobile', playerId: sub.playerId, error: error.message });
+                        const isInvalid = hasInvalidPlayerIds && invalidPlayerIds.includes(sub.playerId);
+                        results.push({ 
+                            success: false, 
+                            type: 'mobile', 
+                            playerId: sub.playerId, 
+                            error: isInvalid ? 'PlayerId inválido en OneSignal' : (error?.message || error?.error || 'Error desconocido')
+                        });
                     });
                 }
             } else {
@@ -622,7 +657,13 @@ const sendOneSignalNotification = async (playerIds, title, body, data = {}) => {
                                 }
                                 console.error('❌ [OneSignal] ===========================================');
                                 console.log('');
-                                reject({ success: false, error: result.errors, invalidPlayerIds: result.errors?.invalid_player_ids || [], result });
+                                // Retornar error en lugar de rechazar para que se maneje correctamente
+                                resolve({ 
+                                    success: false, 
+                                    error: result.errors, 
+                                    invalidPlayerIds: result.errors?.invalid_player_ids || [], 
+                                    result 
+                                });
                             } else {
                                 console.log('✅ [OneSignal] ¡NOTIFICACIÓN ENVIADA EXITOSAMENTE!');
                                 console.log('✅ [OneSignal] ID de notificación:', result.id || 'N/A');
