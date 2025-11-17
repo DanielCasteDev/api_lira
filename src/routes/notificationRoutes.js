@@ -228,8 +228,23 @@ router.post('/send-to-user', authMiddleware, async (req, res) => {
 
         // Obtener todas las suscripciones del usuario
         const subscriptions = await Subscription.find({ userId });
+        
+        console.log('🔍 [Backend] Buscando suscripciones para usuario:', {
+            userId,
+            totalSubscriptions: subscriptions.length,
+            subscriptions: subscriptions.map(sub => ({
+                type: sub.type,
+                playerId: sub.playerId ? sub.playerId.substring(0, 20) + '...' : null,
+                endpoint: sub.endpoint ? sub.endpoint.substring(0, 50) + '...' : null,
+            })),
+            timestamp: new Date().toISOString()
+        });
 
         if (subscriptions.length === 0) {
+            console.warn('⚠️ [Backend] Usuario no tiene suscripciones activas:', {
+                userId,
+                timestamp: new Date().toISOString()
+            });
             return res.status(404).json({ message: 'El usuario no tiene suscripciones activas' });
         }
 
@@ -274,30 +289,61 @@ router.post('/send-to-user', authMiddleware, async (req, res) => {
         // Enviar notificaciones móviles vía OneSignal
         if (mobileSubscriptions.length > 0) {
             const playerIds = mobileSubscriptions.map(sub => sub.playerId).filter(id => id);
+            console.log('📱 [Backend] ===== ENVIANDO NOTIFICACIONES MÓVILES =====');
+            console.log('📱 [Backend] Usuario:', userId);
+            console.log('📱 [Backend] Título:', title);
+            console.log('📱 [Backend] Mensaje:', body);
+            console.log('📱 [Backend] Suscripciones móviles encontradas:', mobileSubscriptions.length);
+            console.log('📱 [Backend] PlayerIds válidos:', playerIds.length);
+            console.log('📱 [Backend] PlayerIds:', JSON.stringify(playerIds));
+            console.log('📱 [Backend] Timestamp:', new Date().toISOString());
+            
             if (playerIds.length > 0) {
                 try {
+                    console.log('📤 [Backend] Llamando a OneSignal API...');
                     const oneSignalResult = await sendOneSignalNotification(
                         playerIds,
                         title,
                         body,
                         data || {}
                     );
+                    
+                    console.log('📥 [Backend] ===== RESPUESTA DE ONESIGNAL =====');
+                    console.log('📥 [Backend] ¿Enviado exitosamente?', oneSignalResult.success ? '✅ SÍ' : '❌ NO');
+                    if (oneSignalResult.success) {
+                        console.log('✅ [Backend] ¡NOTIFICACIÓN ENVIADA EXITOSAMENTE A ONESIGNAL!');
+                        console.log('✅ [Backend] Resultado:', JSON.stringify(oneSignalResult.result).substring(0, 200));
+                    } else {
+                        console.error('❌ [Backend] ERROR AL ENVIAR A ONESIGNAL');
+                        console.error('❌ [Backend] Error:', JSON.stringify(oneSignalResult.error));
+                    }
+                    console.log('📥 [Backend] Timestamp:', new Date().toISOString());
+                    
                     if (oneSignalResult.success) {
                         mobileSubscriptions.forEach(sub => {
                             results.push({ success: true, type: 'mobile', playerId: sub.playerId });
                         });
+                        console.log('✅ [Backend] Notificación marcada como exitosa para', mobileSubscriptions.length, 'dispositivos');
                     } else {
                         mobileSubscriptions.forEach(sub => {
-                            results.push({ success: false, type: 'mobile', playerId: sub.playerId, error: oneSignalResult.error });
+                            results.push({ success: false, type: 'mobile', playerId: sub.playerId, error: JSON.stringify(oneSignalResult.error) });
                         });
+                        console.error('❌ [Backend] Notificación marcada como fallida para', mobileSubscriptions.length, 'dispositivos');
                     }
                 } catch (error) {
-                    console.error('Error al enviar notificaciones móviles:', error);
+                    console.error('❌ [Backend] ===== ERROR CRÍTICO AL ENVIAR NOTIFICACIONES MÓVILES =====');
+                    console.error('❌ [Backend] Mensaje de error:', error.message);
+                    console.error('❌ [Backend] Stack:', error.stack);
+                    console.error('❌ [Backend] Timestamp:', new Date().toISOString());
                     mobileSubscriptions.forEach(sub => {
                         results.push({ success: false, type: 'mobile', playerId: sub.playerId, error: error.message });
                     });
                 }
+            } else {
+                console.warn('⚠️ [Backend] No hay playerIds válidos para enviar notificaciones móviles');
             }
+        } else {
+            console.log('ℹ️ [Backend] No hay suscripciones móviles para este usuario');
         }
 
         const successCount = results.filter(r => r.success).length;
@@ -504,6 +550,16 @@ const sendOneSignalNotification = async (playerIds, title, body, data = {}) => {
             },
         };
 
+        console.log('');
+        console.log('📤 [OneSignal] ===== ENVIANDO NOTIFICACIÓN A ONESIGNAL =====');
+        console.log('📤 [OneSignal] App ID:', ONE_SIGNAL_APP_ID);
+        console.log('📤 [OneSignal] Cantidad de PlayerIds:', playerIds.length);
+        console.log('📤 [OneSignal] PlayerIds:', JSON.stringify(playerIds));
+        console.log('📤 [OneSignal] Título:', title);
+        console.log('📤 [OneSignal] Mensaje:', body);
+        console.log('📤 [OneSignal] Timestamp:', new Date().toISOString());
+        console.log('📤 [OneSignal] ============================================');
+
         return new Promise((resolve, reject) => {
             const req = https.request(options, (res) => {
                 let responseData = '';
@@ -513,22 +569,53 @@ const sendOneSignalNotification = async (playerIds, title, body, data = {}) => {
                 res.on('end', () => {
                     try {
                         const result = JSON.parse(responseData);
-                        if (res.statusCode === 200) {
+                        console.log('');
+                        console.log('📥 [OneSignal] ===== RESPUESTA DE ONESIGNAL =====');
+                        console.log('📥 [OneSignal] Status Code:', res.statusCode);
+                        console.log('📥 [OneSignal] Respuesta completa:', JSON.stringify(result, null, 2));
+                        console.log('📥 [OneSignal] Timestamp:', new Date().toISOString());
+                        
+                        if (res.statusCode === 200 || res.statusCode === 201) {
+                            console.log('✅ [OneSignal] ¡NOTIFICACIÓN ENVIADA EXITOSAMENTE!');
+                            console.log('✅ [OneSignal] ID de notificación:', result.id || 'N/A');
+                            console.log('✅ [OneSignal] Cantidad de destinatarios:', result.recipients || 'N/A');
+                            console.log('✅ [OneSignal] =========================================');
+                            console.log('');
                             resolve({ success: true, result });
                         } else {
-                            reject({ success: false, error: result });
+                            console.error('❌ [OneSignal] ===== ERROR EN LA RESPUESTA =====');
+                            console.error('❌ [OneSignal] Status Code:', res.statusCode);
+                            console.error('❌ [OneSignal] Error:', JSON.stringify(result, null, 2));
+                            console.error('❌ [OneSignal] ===================================');
+                            console.log('');
+                            reject({ success: false, error: result, statusCode: res.statusCode });
                         }
                     } catch (e) {
-                        reject({ success: false, error: 'Error parsing response' });
+                        console.error('');
+                        console.error('❌ [OneSignal] ===== ERROR PARSEANDO RESPUESTA =====');
+                        console.error('❌ [OneSignal] Error:', e.message);
+                        console.error('❌ [OneSignal] Respuesta raw:', responseData.substring(0, 500));
+                        console.error('❌ [OneSignal] ======================================');
+                        console.log('');
+                        reject({ success: false, error: 'Error parsing response', rawResponse: responseData });
                     }
                 });
             });
 
             req.on('error', (error) => {
+                console.error('');
+                console.error('❌ [OneSignal] ===== ERROR EN LA PETICIÓN HTTP =====');
+                console.error('❌ [OneSignal] Error:', error.message);
+                console.error('❌ [OneSignal] Código:', error.code);
+                console.error('❌ [OneSignal] Timestamp:', new Date().toISOString());
+                console.error('❌ [OneSignal] ======================================');
+                console.log('');
                 reject({ success: false, error: error.message });
             });
 
-            req.write(JSON.stringify(notification));
+            const notificationJson = JSON.stringify(notification);
+            console.log('📋 [OneSignal] Payload completo:', notificationJson);
+            req.write(notificationJson);
             req.end();
         });
     } catch (error) {
