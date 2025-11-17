@@ -1,6 +1,5 @@
 const express = require('express');
 const webpush = require('web-push');
-const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const Subscription = require('../models/subscription');
@@ -233,8 +232,6 @@ router.post('/send-to-user', authMiddleware, async (req, res) => {
             userId,
             totalSubscriptions: subscriptions.length,
             subscriptions: subscriptions.map(sub => ({
-                type: sub.type,
-                playerId: sub.playerId ? sub.playerId.substring(0, 20) + '...' : null,
                 endpoint: sub.endpoint ? sub.endpoint.substring(0, 50) + '...' : null,
             })),
             timestamp: new Date().toISOString()
@@ -257,13 +254,9 @@ router.post('/send-to-user', authMiddleware, async (req, res) => {
         });
 
         const results = [];
-        
-        // Separar suscripciones web y móviles
-        const webSubscriptions = subscriptions.filter(sub => sub.type === 'web');
-        const mobileSubscriptions = subscriptions.filter(sub => sub.type === 'mobile');
 
         // Enviar notificaciones web
-        for (const subscription of webSubscriptions) {
+        for (const subscription of subscriptions) {
             try {
                 await webpush.sendNotification(
                     {
@@ -284,133 +277,6 @@ router.post('/send-to-user', authMiddleware, async (req, res) => {
                 }
                 results.push({ success: false, type: 'web', endpoint: subscription.endpoint, error: error.message });
             }
-        }
-
-        // Enviar notificaciones móviles vía OneSignal
-        if (mobileSubscriptions.length > 0) {
-            const playerIds = mobileSubscriptions.map(sub => sub.playerId).filter(id => id);
-            console.log('📱 [Backend] ===== ENVIANDO NOTIFICACIONES MÓVILES =====');
-            console.log('📱 [Backend] Usuario:', userId);
-            console.log('📱 [Backend] Título:', title);
-            console.log('📱 [Backend] Mensaje:', body);
-            console.log('📱 [Backend] Suscripciones móviles encontradas:', mobileSubscriptions.length);
-            console.log('📱 [Backend] PlayerIds válidos:', playerIds.length);
-            console.log('📱 [Backend] PlayerIds:', JSON.stringify(playerIds));
-            console.log('📱 [Backend] Timestamp:', new Date().toISOString());
-            
-            if (playerIds.length > 0) {
-                try {
-                    console.log('📤 [Backend] Llamando a OneSignal API...');
-                    const oneSignalResult = await sendOneSignalNotification(
-                        playerIds,
-                        title,
-                        body,
-                        data || {}
-                    );
-                    
-                    console.log('📥 [Backend] ===== RESPUESTA DE ONESIGNAL =====');
-                    console.log('📥 [Backend] ¿Enviado exitosamente?', oneSignalResult.success ? '✅ SÍ' : '❌ NO');
-                    
-                    // Verificar si hay playerIds inválidos
-                    const invalidPlayerIds = oneSignalResult.invalidPlayerIds || [];
-                    const hasInvalidPlayerIds = invalidPlayerIds.length > 0;
-                    
-                    if (oneSignalResult.success) {
-                        console.log('✅ [Backend] ¡NOTIFICACIÓN ENVIADA EXITOSAMENTE A ONESIGNAL!');
-                        console.log('✅ [Backend] Resultado:', JSON.stringify(oneSignalResult.result).substring(0, 200));
-                    } else {
-                        console.error('❌ [Backend] ERROR AL ENVIAR A ONESIGNAL');
-                        console.error('❌ [Backend] Error:', JSON.stringify(oneSignalResult.error));
-                        if (hasInvalidPlayerIds) {
-                            console.error('❌ [Backend] PlayerIds inválidos detectados:', invalidPlayerIds);
-                            console.error('❌ [Backend] Estos playerIds serán eliminados de la base de datos');
-                        }
-                    }
-                    console.log('📥 [Backend] Timestamp:', new Date().toISOString());
-                    
-                    // Procesar resultados y eliminar suscripciones inválidas
-                    for (const sub of mobileSubscriptions) {
-                        const isInvalid = hasInvalidPlayerIds && invalidPlayerIds.includes(sub.playerId);
-                        
-                        if (oneSignalResult.success && !isInvalid) {
-                            results.push({ success: true, type: 'mobile', playerId: sub.playerId });
-                        } else {
-                            results.push({ 
-                                success: false, 
-                                type: 'mobile', 
-                                playerId: sub.playerId, 
-                                error: isInvalid ? 'PlayerId inválido en OneSignal' : JSON.stringify(oneSignalResult.error)
-                            });
-                            
-                            // Eliminar suscripción inválida de la base de datos
-                            if (isInvalid) {
-                                try {
-                                    await Subscription.findByIdAndDelete(sub._id);
-                                    console.log('🗑️ [Backend] Suscripción eliminada (playerId inválido):', sub.playerId);
-                                } catch (deleteError) {
-                                    console.error('❌ [Backend] Error eliminando suscripción inválida:', deleteError.message);
-                                }
-                            }
-                        }
-                    }
-                    
-                    const successCount = results.filter(r => r.success && r.type === 'mobile').length;
-                    const failCount = results.filter(r => !r.success && r.type === 'mobile').length;
-                    console.log('📊 [Backend] Resumen:');
-                    console.log('   ✅ Exitosas:', successCount);
-                    console.log('   ❌ Fallidas:', failCount);
-                    if (hasInvalidPlayerIds) {
-                        console.log('   🗑️ Eliminadas (inválidas):', invalidPlayerIds.length);
-                    }
-                } catch (error) {
-                    console.error('❌ [Backend] ===== ERROR CRÍTICO AL ENVIAR NOTIFICACIONES MÓVILES =====');
-                    console.error('❌ [Backend] Tipo de error:', typeof error);
-                    console.error('❌ [Backend] Error completo:', JSON.stringify(error, null, 2));
-                    console.error('❌ [Backend] Mensaje de error:', error?.message || error?.error || 'Error desconocido');
-                    console.error('❌ [Backend] Stack:', error?.stack || 'No disponible');
-                    console.error('❌ [Backend] Timestamp:', new Date().toISOString());
-                    
-                    // Verificar si el error contiene playerIds inválidos
-                    const invalidPlayerIds = error?.invalidPlayerIds || [];
-                    const hasInvalidPlayerIds = invalidPlayerIds.length > 0;
-                    
-                    if (hasInvalidPlayerIds) {
-                        console.error('❌ [Backend] PlayerIds inválidos detectados en el error:', invalidPlayerIds);
-                        console.error('❌ [Backend] Eliminando suscripciones inválidas...');
-                        
-                        // Eliminar suscripciones con playerIds inválidos
-                        for (const invalidPlayerId of invalidPlayerIds) {
-                            try {
-                                const deleteResult = await Subscription.deleteMany({ 
-                                    userId, 
-                                    playerId: invalidPlayerId,
-                                    type: 'mobile'
-                                });
-                                console.log('🗑️ [Backend] Suscripción eliminada (playerId inválido):', {
-                                    playerId: invalidPlayerId,
-                                    deletedCount: deleteResult.deletedCount
-                                });
-                            } catch (deleteError) {
-                                console.error('❌ [Backend] Error eliminando suscripción inválida:', deleteError.message);
-                            }
-                        }
-                    }
-                    
-                    mobileSubscriptions.forEach(sub => {
-                        const isInvalid = hasInvalidPlayerIds && invalidPlayerIds.includes(sub.playerId);
-                        results.push({ 
-                            success: false, 
-                            type: 'mobile', 
-                            playerId: sub.playerId, 
-                            error: isInvalid ? 'PlayerId inválido en OneSignal' : (error?.message || error?.error || 'Error desconocido')
-                        });
-                    });
-                }
-            } else {
-                console.warn('⚠️ [Backend] No hay playerIds válidos para enviar notificaciones móviles');
-            }
-        } else {
-            console.log('ℹ️ [Backend] No hay suscripciones móviles para este usuario');
         }
 
         const successCount = results.filter(r => r.success).length;
@@ -454,17 +320,13 @@ router.post('/send-to-many', authMiddleware, async (req, res) => {
         const results = [];
         let totalSubscriptions = 0;
         let successCount = 0;
-        const allMobilePlayerIds = [];
 
         for (const userId of userIds) {
             const subscriptions = await Subscription.find({ userId });
             totalSubscriptions += subscriptions.length;
 
-            const webSubscriptions = subscriptions.filter(sub => sub.type === 'web');
-            const mobileSubscriptions = subscriptions.filter(sub => sub.type === 'mobile');
-
             // Enviar notificaciones web
-            for (const subscription of webSubscriptions) {
+            for (const subscription of subscriptions) {
                 try {
                     await webpush.sendNotification(
                         {
@@ -486,40 +348,6 @@ router.post('/send-to-many', authMiddleware, async (req, res) => {
                     }
                     results.push({ success: false, userId, type: 'web', endpoint: subscription.endpoint, error: error.message });
                 }
-            }
-
-            // Recolectar playerIds móviles
-            mobileSubscriptions.forEach(sub => {
-                if (sub.playerId) {
-                    allMobilePlayerIds.push(sub.playerId);
-                }
-            });
-        }
-
-        // Enviar notificaciones móviles en batch
-        if (allMobilePlayerIds.length > 0) {
-            try {
-                const oneSignalResult = await sendOneSignalNotification(
-                    allMobilePlayerIds,
-                    title,
-                    body,
-                    data || {}
-                );
-                if (oneSignalResult.success) {
-                    successCount += allMobilePlayerIds.length;
-                    allMobilePlayerIds.forEach(playerId => {
-                        results.push({ success: true, type: 'mobile', playerId });
-                    });
-                } else {
-                    allMobilePlayerIds.forEach(playerId => {
-                        results.push({ success: false, type: 'mobile', playerId, error: oneSignalResult.error });
-                    });
-                }
-            } catch (error) {
-                console.error('Error al enviar notificaciones móviles:', error);
-                allMobilePlayerIds.forEach(playerId => {
-                    results.push({ success: false, type: 'mobile', playerId, error: error.message });
-                });
             }
         }
 
@@ -586,259 +414,6 @@ router.get('/all-users', authMiddleware, async (req, res) => {
     }
 });
 
-// Función helper para enviar notificación vía OneSignal
-const sendOneSignalNotification = async (playerIds, title, body, data = {}) => {
-    // Credenciales de OneSignal desde variables de entorno
-    const ONE_SIGNAL_APP_ID = process.env.ONE_SIGNAL_APP_ID;
-    const ONE_SIGNAL_REST_API_KEY = process.env.ONE_SIGNAL_REST_API_KEY;
-
-    if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_REST_API_KEY) {
-        console.error('❌ OneSignal no está configurado. Verifica las variables de entorno ONE_SIGNAL_APP_ID y ONE_SIGNAL_REST_API_KEY');
-        return { success: false, error: 'OneSignal no configurado' };
-    }
-
-    try {
-        const notification = {
-            app_id: ONE_SIGNAL_APP_ID,
-            include_player_ids: playerIds,
-            headings: { en: title },
-            contents: { en: body },
-            data: data,
-        };
-
-        const options = {
-            hostname: 'onesignal.com',
-            port: 443,
-            path: '/api/v1/notifications',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Key ${ONE_SIGNAL_REST_API_KEY}`, // Formato correcto para OneSignal API
-            },
-        };
-
-        console.log('');
-        console.log('📤 [OneSignal] ===== ENVIANDO NOTIFICACIÓN A ONESIGNAL =====');
-        console.log('📤 [OneSignal] App ID:', ONE_SIGNAL_APP_ID);
-        console.log('📤 [OneSignal] Cantidad de PlayerIds:', playerIds.length);
-        console.log('📤 [OneSignal] PlayerIds:', JSON.stringify(playerIds));
-        console.log('📤 [OneSignal] Título:', title);
-        console.log('📤 [OneSignal] Mensaje:', body);
-        console.log('📤 [OneSignal] Timestamp:', new Date().toISOString());
-        console.log('📤 [OneSignal] ============================================');
-
-        return new Promise((resolve, reject) => {
-            const req = https.request(options, (res) => {
-                let responseData = '';
-                res.on('data', (chunk) => {
-                    responseData += chunk;
-                });
-                res.on('end', () => {
-                    try {
-                        const result = JSON.parse(responseData);
-                        console.log('');
-                        console.log('📥 [OneSignal] ===== RESPUESTA DE ONESIGNAL =====');
-                        console.log('📥 [OneSignal] Status Code:', res.statusCode);
-                        console.log('📥 [OneSignal] Respuesta completa:', JSON.stringify(result, null, 2));
-                        console.log('📥 [OneSignal] Timestamp:', new Date().toISOString());
-                        
-                        // Verificar si hay errores en la respuesta (incluso con status 200)
-                        const hasErrors = result.errors && Object.keys(result.errors).length > 0;
-                        const hasInvalidPlayerIds = result.errors?.invalid_player_ids && result.errors.invalid_player_ids.length > 0;
-                        const hasWarnings = result.warnings && result.warnings.length > 0;
-                        
-                        if (res.statusCode === 200 || res.statusCode === 201) {
-                            if (hasErrors || hasInvalidPlayerIds) {
-                                console.error('❌ [OneSignal] ===== ERROR: PLAYERIDS INVÁLIDOS =====');
-                                console.error('❌ [OneSignal] PlayerIds inválidos:', result.errors?.invalid_player_ids || []);
-                                console.error('❌ [OneSignal] Errores completos:', JSON.stringify(result.errors, null, 2));
-                                if (hasWarnings) {
-                                    console.warn('⚠️ [OneSignal] Advertencias:', result.warnings);
-                                }
-                                console.error('❌ [OneSignal] ===========================================');
-                                console.log('');
-                                // Retornar error en lugar de rechazar para que se maneje correctamente
-                                resolve({ 
-                                    success: false, 
-                                    error: result.errors, 
-                                    invalidPlayerIds: result.errors?.invalid_player_ids || [], 
-                                    result 
-                                });
-                            } else {
-                                console.log('✅ [OneSignal] ¡NOTIFICACIÓN ENVIADA EXITOSAMENTE!');
-                                console.log('✅ [OneSignal] ID de notificación:', result.id || 'N/A');
-                                console.log('✅ [OneSignal] Cantidad de destinatarios:', result.recipients || 'N/A');
-                                if (hasWarnings) {
-                                    console.warn('⚠️ [OneSignal] Advertencias:', result.warnings);
-                                }
-                                console.log('✅ [OneSignal] =========================================');
-                                console.log('');
-                                resolve({ success: true, result });
-                            }
-                        } else {
-                            console.error('❌ [OneSignal] ===== ERROR EN LA RESPUESTA =====');
-                            console.error('❌ [OneSignal] Status Code:', res.statusCode);
-                            console.error('❌ [OneSignal] Error:', JSON.stringify(result, null, 2));
-                            console.error('❌ [OneSignal] ===================================');
-                            console.log('');
-                            reject({ success: false, error: result, statusCode: res.statusCode });
-                        }
-                    } catch (e) {
-                        console.error('');
-                        console.error('❌ [OneSignal] ===== ERROR PARSEANDO RESPUESTA =====');
-                        console.error('❌ [OneSignal] Error:', e.message);
-                        console.error('❌ [OneSignal] Respuesta raw:', responseData.substring(0, 500));
-                        console.error('❌ [OneSignal] ======================================');
-                        console.log('');
-                        reject({ success: false, error: 'Error parsing response', rawResponse: responseData });
-                    }
-                });
-            });
-
-            req.on('error', (error) => {
-                console.error('');
-                console.error('❌ [OneSignal] ===== ERROR EN LA PETICIÓN HTTP =====');
-                console.error('❌ [OneSignal] Error:', error.message);
-                console.error('❌ [OneSignal] Código:', error.code);
-                console.error('❌ [OneSignal] Timestamp:', new Date().toISOString());
-                console.error('❌ [OneSignal] ======================================');
-                console.log('');
-                reject({ success: false, error: error.message });
-            });
-
-            const notificationJson = JSON.stringify(notification);
-            console.log('📋 [OneSignal] Payload completo:', notificationJson);
-            req.write(notificationJson);
-            req.end();
-        });
-    } catch (error) {
-        return { success: false, error: error.message };
-    }
-};
-
-// Ruta para registrar una suscripción móvil (OneSignal)
-router.post('/subscribe-mobile', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const { playerId, platform } = req.body;
-
-        console.log('📥 [Backend] Recibida solicitud de suscripción móvil:', {
-            userId,
-            playerId,
-            platform,
-            timestamp: new Date().toISOString(),
-        });
-
-        if (!playerId) {
-            return res.status(400).json({ message: 'playerId es requerido' });
-        }
-
-        // Contar suscripciones móviles existentes del usuario
-        const existingMobileSubscriptions = await Subscription.find({ 
-            userId, 
-            type: 'mobile' 
-        });
-        
-        console.log('📊 [Backend] Suscripciones móviles existentes del usuario:', {
-            userId,
-            count: existingMobileSubscriptions.length,
-            playerIds: existingMobileSubscriptions.map(s => s.playerId),
-            timestamp: new Date().toISOString()
-        });
-
-        // Eliminar todas las suscripciones móviles anteriores del usuario
-        // (para evitar duplicados cuando el playerId cambia)
-        if (existingMobileSubscriptions.length > 0) {
-            const deleteResult = await Subscription.deleteMany({ 
-                userId, 
-                type: 'mobile' 
-            });
-            console.log('🗑️ [Backend] Suscripciones móviles antiguas eliminadas:', {
-                userId,
-                deletedCount: deleteResult.deletedCount,
-                timestamp: new Date().toISOString()
-            });
-        }
-
-        // Normalizar la plataforma (el enum solo acepta 'android', 'ios', 'web')
-        let normalizedPlatform = platform || 'android';
-        if (normalizedPlatform === 'mobile') {
-            // Si viene 'mobile', usar 'android' por defecto
-            normalizedPlatform = 'android';
-        }
-        if (!['android', 'ios', 'web'].includes(normalizedPlatform)) {
-            normalizedPlatform = 'android';
-        }
-
-        // Crear la nueva suscripción móvil
-        const subscription = await Subscription.create({
-            userId,
-            playerId,
-            type: 'mobile',
-            platform: normalizedPlatform,
-        });
-
-        console.log('✅ [Backend] Suscripción móvil registrada:', {
-            userId,
-            subscriptionId: subscription._id,
-            playerId,
-            platform,
-            isNew: true,
-            timestamp: new Date().toISOString()
-        });
-
-        // Contar suscripciones totales del usuario después
-        const totalSubscriptions = await Subscription.countDocuments({ userId });
-        console.log('📊 [Backend] Total de suscripciones del usuario (después):', {
-            userId,
-            totalSubscriptions,
-            timestamp: new Date().toISOString()
-        });
-
-        res.status(201).json({
-            message: 'Suscripción móvil registrada correctamente',
-            subscription: {
-                _id: subscription._id,
-                userId: subscription.userId,
-                playerId: subscription.playerId,
-                platform: subscription.platform,
-                createdAt: subscription.createdAt,
-            },
-        });
-    } catch (error) {
-        console.error('❌ [Backend] Error al registrar suscripción móvil:', {
-            error: error.message,
-            stack: error.stack,
-            userId: req.user?.userId,
-            timestamp: new Date().toISOString()
-        });
-        res.status(500).json({ message: 'Error al registrar la suscripción móvil' });
-    }
-});
-
-// Ruta para eliminar una suscripción móvil
-router.post('/unsubscribe-mobile', authMiddleware, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const { playerId } = req.body;
-
-        if (!playerId) {
-            return res.status(400).json({ message: 'playerId es requerido' });
-        }
-
-        await Subscription.findOneAndDelete({ userId, playerId, type: 'mobile' });
-
-        console.log('✅ [Backend] Suscripción móvil eliminada:', {
-            userId,
-            playerId,
-        });
-
-        res.json({ message: 'Suscripción móvil eliminada correctamente' });
-    } catch (error) {
-        console.error('❌ [Backend] Error al eliminar suscripción móvil:', error);
-        res.status(500).json({ message: 'Error al eliminar la suscripción móvil' });
-    }
-});
 
 module.exports = router;
 
