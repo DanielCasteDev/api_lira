@@ -475,12 +475,12 @@ router.get('/all-users', authMiddleware, async (req, res) => {
 
 // Función helper para enviar notificación vía OneSignal
 const sendOneSignalNotification = async (playerIds, title, body, data = {}) => {
-    // Credenciales de OneSignal configuradas directamente
-    const ONE_SIGNAL_APP_ID = 'feb27b28-9b1d-4562-8287-ffddc25d5a3d';
-    const ONE_SIGNAL_REST_API_KEY = 'os_v2_app_72zhwke3dvcwfauh77o4exk2hvjjendzfsaeh3vgjah2lmjekqhsvyf6tperygkhgqf5swjqq3man67ybnkd6al5iz6vs26hfgijm6a';
+    // Credenciales de OneSignal desde variables de entorno
+    const ONE_SIGNAL_APP_ID = process.env.ONE_SIGNAL_APP_ID;
+    const ONE_SIGNAL_REST_API_KEY = process.env.ONE_SIGNAL_REST_API_KEY;
 
     if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_REST_API_KEY) {
-        console.error('❌ OneSignal no está configurado');
+        console.error('❌ OneSignal no está configurado. Verifica las variables de entorno ONE_SIGNAL_APP_ID y ONE_SIGNAL_REST_API_KEY');
         return { success: false, error: 'OneSignal no configurado' };
     }
 
