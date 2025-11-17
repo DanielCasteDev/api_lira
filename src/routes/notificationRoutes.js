@@ -719,12 +719,22 @@ router.post('/subscribe-mobile', authMiddleware, async (req, res) => {
             });
         }
 
+        // Normalizar la plataforma (el enum solo acepta 'android', 'ios', 'web')
+        let normalizedPlatform = platform || 'android';
+        if (normalizedPlatform === 'mobile') {
+            // Si viene 'mobile', usar 'android' por defecto
+            normalizedPlatform = 'android';
+        }
+        if (!['android', 'ios', 'web'].includes(normalizedPlatform)) {
+            normalizedPlatform = 'android';
+        }
+
         // Crear la nueva suscripción móvil
         const subscription = await Subscription.create({
             userId,
             playerId,
             type: 'mobile',
-            platform: platform || 'android',
+            platform: normalizedPlatform,
         });
 
         console.log('✅ [Backend] Suscripción móvil registrada:', {
