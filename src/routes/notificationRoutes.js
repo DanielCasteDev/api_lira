@@ -1,5 +1,6 @@
 const express = require('express');
 const webpush = require('web-push');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const Subscription = require('../models/subscription');
@@ -150,6 +151,8 @@ router.post('/subscribe', authMiddleware, async (req, res) => {
                     p256dh: keys.p256dh,
                     auth: keys.auth,
                 },
+                type: 'web',
+                platform: 'web',
             },
             { upsert: true, new: true }
         );
@@ -239,7 +242,13 @@ router.post('/send-to-user', authMiddleware, async (req, res) => {
         });
 
         const results = [];
-        for (const subscription of subscriptions) {
+        
+        // Separar suscripciones web y móviles
+        const webSubscriptions = subscriptions.filter(sub => sub.type === 'web');
+        const mobileSubscriptions = subscriptions.filter(sub => sub.type === 'mobile');
+
+        // Enviar notificaciones web
+        for (const subscription of webSubscriptions) {
             try {
                 await webpush.sendNotification(
                     {
@@ -251,14 +260,43 @@ router.post('/send-to-user', authMiddleware, async (req, res) => {
                     },
                     payload
                 );
-                results.push({ success: true, endpoint: subscription.endpoint });
+                results.push({ success: true, type: 'web', endpoint: subscription.endpoint });
             } catch (error) {
-                console.error('Error al enviar notificación:', error);
+                console.error('Error al enviar notificación web:', error);
                 // Si la suscripción es inválida, eliminarla
                 if (error.statusCode === 410 || error.statusCode === 404) {
                     await Subscription.findByIdAndDelete(subscription._id);
                 }
-                results.push({ success: false, endpoint: subscription.endpoint, error: error.message });
+                results.push({ success: false, type: 'web', endpoint: subscription.endpoint, error: error.message });
+            }
+        }
+
+        // Enviar notificaciones móviles vía OneSignal
+        if (mobileSubscriptions.length > 0) {
+            const playerIds = mobileSubscriptions.map(sub => sub.playerId).filter(id => id);
+            if (playerIds.length > 0) {
+                try {
+                    const oneSignalResult = await sendOneSignalNotification(
+                        playerIds,
+                        title,
+                        body,
+                        data || {}
+                    );
+                    if (oneSignalResult.success) {
+                        mobileSubscriptions.forEach(sub => {
+                            results.push({ success: true, type: 'mobile', playerId: sub.playerId });
+                        });
+                    } else {
+                        mobileSubscriptions.forEach(sub => {
+                            results.push({ success: false, type: 'mobile', playerId: sub.playerId, error: oneSignalResult.error });
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error al enviar notificaciones móviles:', error);
+                    mobileSubscriptions.forEach(sub => {
+                        results.push({ success: false, type: 'mobile', playerId: sub.playerId, error: error.message });
+                    });
+                }
             }
         }
 
@@ -303,12 +341,17 @@ router.post('/send-to-many', authMiddleware, async (req, res) => {
         const results = [];
         let totalSubscriptions = 0;
         let successCount = 0;
+        const allMobilePlayerIds = [];
 
         for (const userId of userIds) {
             const subscriptions = await Subscription.find({ userId });
             totalSubscriptions += subscriptions.length;
 
-            for (const subscription of subscriptions) {
+            const webSubscriptions = subscriptions.filter(sub => sub.type === 'web');
+            const mobileSubscriptions = subscriptions.filter(sub => sub.type === 'mobile');
+
+            // Enviar notificaciones web
+            for (const subscription of webSubscriptions) {
                 try {
                     await webpush.sendNotification(
                         {
@@ -321,15 +364,49 @@ router.post('/send-to-many', authMiddleware, async (req, res) => {
                         payload
                     );
                     successCount++;
-                    results.push({ success: true, userId, endpoint: subscription.endpoint });
+                    results.push({ success: true, userId, type: 'web', endpoint: subscription.endpoint });
                 } catch (error) {
-                    console.error('Error al enviar notificación:', error);
+                    console.error('Error al enviar notificación web:', error);
                     // Si la suscripción es inválida, eliminarla
                     if (error.statusCode === 410 || error.statusCode === 404) {
                         await Subscription.findByIdAndDelete(subscription._id);
                     }
-                    results.push({ success: false, userId, endpoint: subscription.endpoint, error: error.message });
+                    results.push({ success: false, userId, type: 'web', endpoint: subscription.endpoint, error: error.message });
                 }
+            }
+
+            // Recolectar playerIds móviles
+            mobileSubscriptions.forEach(sub => {
+                if (sub.playerId) {
+                    allMobilePlayerIds.push(sub.playerId);
+                }
+            });
+        }
+
+        // Enviar notificaciones móviles en batch
+        if (allMobilePlayerIds.length > 0) {
+            try {
+                const oneSignalResult = await sendOneSignalNotification(
+                    allMobilePlayerIds,
+                    title,
+                    body,
+                    data || {}
+                );
+                if (oneSignalResult.success) {
+                    successCount += allMobilePlayerIds.length;
+                    allMobilePlayerIds.forEach(playerId => {
+                        results.push({ success: true, type: 'mobile', playerId });
+                    });
+                } else {
+                    allMobilePlayerIds.forEach(playerId => {
+                        results.push({ success: false, type: 'mobile', playerId, error: oneSignalResult.error });
+                    });
+                }
+            } catch (error) {
+                console.error('Error al enviar notificaciones móviles:', error);
+                allMobilePlayerIds.forEach(playerId => {
+                    results.push({ success: false, type: 'mobile', playerId, error: error.message });
+                });
             }
         }
 
@@ -393,6 +470,145 @@ router.get('/all-users', authMiddleware, async (req, res) => {
     } catch (error) {
         console.error('Error al obtener usuarios:', error);
         res.status(500).json({ message: 'Error al obtener usuarios' });
+    }
+});
+
+// Función helper para enviar notificación vía OneSignal
+const sendOneSignalNotification = async (playerIds, title, body, data = {}) => {
+    // Credenciales de OneSignal configuradas directamente
+    const ONE_SIGNAL_APP_ID = 'feb27b28-9b1d-4562-8287-ffddc25d5a3d';
+    const ONE_SIGNAL_REST_API_KEY = 'os_v2_app_72zhwke3dvcwfauh77o4exk2hvjjendzfsaeh3vgjah2lmjekqhsvyf6tperygkhgqf5swjqq3man67ybnkd6al5iz6vs26hfgijm6a';
+
+    if (!ONE_SIGNAL_APP_ID || !ONE_SIGNAL_REST_API_KEY) {
+        console.error('❌ OneSignal no está configurado');
+        return { success: false, error: 'OneSignal no configurado' };
+    }
+
+    try {
+        const notification = {
+            app_id: ONE_SIGNAL_APP_ID,
+            include_player_ids: playerIds,
+            headings: { en: title },
+            contents: { en: body },
+            data: data,
+        };
+
+        const options = {
+            hostname: 'onesignal.com',
+            port: 443,
+            path: '/api/v1/notifications',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Key ${ONE_SIGNAL_REST_API_KEY}`, // Formato correcto para OneSignal API
+            },
+        };
+
+        return new Promise((resolve, reject) => {
+            const req = https.request(options, (res) => {
+                let responseData = '';
+                res.on('data', (chunk) => {
+                    responseData += chunk;
+                });
+                res.on('end', () => {
+                    try {
+                        const result = JSON.parse(responseData);
+                        if (res.statusCode === 200) {
+                            resolve({ success: true, result });
+                        } else {
+                            reject({ success: false, error: result });
+                        }
+                    } catch (e) {
+                        reject({ success: false, error: 'Error parsing response' });
+                    }
+                });
+            });
+
+            req.on('error', (error) => {
+                reject({ success: false, error: error.message });
+            });
+
+            req.write(JSON.stringify(notification));
+            req.end();
+        });
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+};
+
+// Ruta para registrar una suscripción móvil (OneSignal)
+router.post('/subscribe-mobile', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { playerId, platform } = req.body;
+
+        console.log('📥 [Backend] Recibida solicitud de suscripción móvil:', {
+            userId,
+            playerId,
+            platform,
+            timestamp: new Date().toISOString(),
+        });
+
+        if (!playerId) {
+            return res.status(400).json({ message: 'playerId es requerido' });
+        }
+
+        // Buscar o crear la suscripción móvil
+        const subscription = await Subscription.findOneAndUpdate(
+            { userId, playerId },
+            {
+                userId,
+                playerId,
+                type: 'mobile',
+                platform: platform || 'android',
+            },
+            { upsert: true, new: true }
+        );
+
+        console.log('✅ [Backend] Suscripción móvil registrada:', {
+            userId,
+            subscriptionId: subscription._id,
+            playerId,
+            platform,
+        });
+
+        res.status(201).json({
+            message: 'Suscripción móvil registrada correctamente',
+            subscription: {
+                _id: subscription._id,
+                userId: subscription.userId,
+                playerId: subscription.playerId,
+                platform: subscription.platform,
+                createdAt: subscription.createdAt,
+            },
+        });
+    } catch (error) {
+        console.error('❌ [Backend] Error al registrar suscripción móvil:', error);
+        res.status(500).json({ message: 'Error al registrar la suscripción móvil' });
+    }
+});
+
+// Ruta para eliminar una suscripción móvil
+router.post('/unsubscribe-mobile', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { playerId } = req.body;
+
+        if (!playerId) {
+            return res.status(400).json({ message: 'playerId es requerido' });
+        }
+
+        await Subscription.findOneAndDelete({ userId, playerId, type: 'mobile' });
+
+        console.log('✅ [Backend] Suscripción móvil eliminada:', {
+            userId,
+            playerId,
+        });
+
+        res.json({ message: 'Suscripción móvil eliminada correctamente' });
+    } catch (error) {
+        console.error('❌ [Backend] Error al eliminar suscripción móvil:', error);
+        res.status(500).json({ message: 'Error al eliminar la suscripción móvil' });
     }
 });
 
